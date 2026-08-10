@@ -305,7 +305,7 @@ export default function App() {
                         const bldgInfo = sch.building ? `[${sch.building}] ` : '';
                         row += `,"${sch.title} ${regionInfo}${bldgInfo}(${sch.displayTime}) - ${sch.memo} (${sch.author})"`;
                     } else {
-                        row += `,"(연속)"`;
+                        row += `,"(${sch.title})"`;
                     }
                 } else {
                     row += ",";
