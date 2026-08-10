@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as dateFns from 'date-fns';
+import { ko } from 'date-fns/locale'; // 한글 요일 표시를 위한 로케일
 import { Calendar, List, Download, ChevronLeft, ChevronRight, ShieldCheck, AlertCircle, Info, Trash2, X, User, Zap, Network, Clock, AlignLeft, MapPin, Building2, Cloud } from 'lucide-react';
 
 // 사용자 제공 Firebase Config
@@ -52,6 +53,26 @@ const generateTimeSlots = () => {
 };
 const VALID_SLOTS = generateTimeSlots();
 
+// 날짜 색상 판별 함수 (토요일: 파란색, 일요일/공휴일: 빨간색)
+const getDateColorClass = (dateObj) => {
+    const day = dateFns.getDay(dateObj); // 0: 일요일, 6: 토요일
+    const dateStr = dateFns.format(dateObj, 'yyyy-MM-dd');
+    
+    // 주요 공휴일 목록 (필요에 따라 연도별 추가 가능)
+    const holidays = [
+        '2026-01-01', '2026-03-01', '2026-05-05', '2026-06-06', 
+        '2026-08-15', '2026-09-24', '2026-09-25', '2026-09-26', 
+        '2026-10-03', '2026-10-09', '2026-12-25'
+    ];
+
+    if (day === 0 || holidays.includes(dateStr)) {
+        return 'text-red-600'; // 일요일, 공휴일
+    } else if (day === 6) {
+        return 'text-blue-600'; // 토요일
+    }
+    return 'text-slate-800'; // 평일
+};
+
 export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -59,13 +80,18 @@ export default function App() {
   const [schedules, setSchedules] = useState({}); 
   
   const [cloudStatus, setCloudStatus] = useState('connecting');
-  const [cloudErrorDetail, setCloudErrorDetail] = useState(''); // 에러 상세 내용 상태 추가
+  const [cloudErrorDetail, setCloudErrorDetail] = useState('');
   const [dbInstance, setDbInstance] = useState(null);
 
   const [alertConfig, setAlertConfig] = useState({ isOpen: false, message: '' });
   const [deleteConfig, setDeleteConfig] = useState({ isOpen: false, dateKey: null, techId: null, existingSchedule: null, password: '' });
   const [addModalConfig, setAddModalConfig] = useState({ isOpen: false, techId: null, slotKey: null, dateKey: null });
   const [overtimeConfig, setOvertimeConfig] = useState({ isOpen: false, updates: null, dateKey: null });
+  
+  // 기간 지정 엑셀 다운로드 상태
+  const [showExcelModal, setShowExcelModal] = useState(false);
+  const [excelStartDate, setExcelStartDate] = useState(dateFns.format(new Date(), 'yyyy-MM-dd'));
+  const [excelEndDate, setExcelEndDate] = useState(dateFns.format(new Date(), 'yyyy-MM-dd'));
   
   // 폼 초기값 (0시간 0분)
   const [addFormWorkType, setAddFormWorkType] = useState('ev');
@@ -83,7 +109,7 @@ export default function App() {
   const showAlert = (message) => setAlertConfig({ isOpen: true, message });
 
   useEffect(() => {
-    document.title = "HSS시스템 (클라우드 연동)";
+    document.title = "HSS 시스템 - 실시간 스케줄러";
 
     const initUser = async () => {
         try {
@@ -111,7 +137,6 @@ export default function App() {
         const db = getFirestore(app);
         setDbInstance(db);
         
-        // 익명 로그인 (Firebase 인증 필수)
         signInAnonymously(auth).catch((error) => {
             console.error("Firebase Auth Error:", error);
             setCloudStatus('error');
@@ -120,7 +145,6 @@ export default function App() {
 
         unsubAuth = onAuthStateChanged(auth, (user) => {
             if (user) {
-                // 앱 전용 경로에 데이터 저장 (보안 및 구조화 목적)
                 const schedulesRef = collection(db, 'artifacts', 'hss-system', 'public', 'data', 'schedules');
                 
                 unsubSnapshot = onSnapshot(schedulesRef, (snapshot) => {
@@ -134,7 +158,7 @@ export default function App() {
                 }, (error) => {
                     console.error("Firestore Error:", error);
                     setCloudStatus('error');
-                    setCloudErrorDetail(`DB 접근 차단됨: ${error.code} (규칙을 확인하세요)`);
+                    setCloudErrorDetail(`DB 접근 차단됨: ${error.code}`);
                 });
             } else {
                 setCloudStatus('connecting');
@@ -186,10 +210,9 @@ export default function App() {
     let currentIndex = startIndex;
     let blocksCount = 0;
 
-    // 점심시간(12:00~12:50) 건너뛰기 로직 적용
+    // 점심시간(12:00~12:50) 건너뛰기
     while (blocksCount < blocksNeeded && currentIndex < VALID_SLOTS.length) {
         const currentSlot = VALID_SLOTS[currentIndex];
-        // 12시대 슬롯은 배열에 넣지 않고 인덱스만 넘김
         if (currentSlot.startsWith("12:")) {
             currentIndex++;
             continue;
@@ -228,7 +251,7 @@ export default function App() {
             displayTime: displayTime,
             author: userName || '익명',
             taskId: taskId,
-            isStart: index === 0, // 첫 블록만 헤더 표시
+            isStart: index === 0,
             duration: blocksNeeded
         };
     });
@@ -284,71 +307,60 @@ export default function App() {
     }
   };
 
-  const downloadCSV = () => {
-    // 이전과 동일한 로직 유지
-    let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
-    // ... 생략 없이 전체 코드 작성 ...
-    if (viewMode === 'daily') {
-        const dateKey = dateFns.format(selectedDate, 'yyyy-MM-dd');
-        csvContent += `일자:,${dateKey}\n\n`;
-        csvContent += "순번,팀,센터,성명," + VALID_SLOTS.join(',') + "\n";
+  // 기간 지정 엑셀(CSV) 다운로드 함수 (전체 상단 필드명 1줄, 성명 옆 일자 표기)
+  const handleDownloadExcelRange = () => {
+    try {
+        const start = dateFns.parseISO(excelStartDate);
+        const end = dateFns.parseISO(excelEndDate);
+        const days = dateFns.eachDayOfInterval({ start, end });
         
-        technicians.forEach((tech, index) => {
-            let row = `${index + 1},${tech.team},${tech.center},${tech.name}`;
-            const processedTasks = new Set();
-            VALID_SLOTS.forEach(slot => {
-                const sch = schedules[dateKey]?.[`${tech.id}_${slot}`];
-                if (sch) {
-                    if (!processedTasks.has(sch.taskId)) {
-                        processedTasks.add(sch.taskId);
-                        const regionInfo = sch.region ? `[${sch.region}] ` : '';
-                        const bldgInfo = sch.building ? `[${sch.building}] ` : '';
-                        row += `,"${sch.title} ${regionInfo}${bldgInfo}(${sch.displayTime}) - ${sch.memo} (${sch.author})"`;
-                    } else {
-                        row += `,"${sch.title}"`;
-                    }
-                } else {
-                    row += ",";
-                }
-            });
-            csvContent += row + "\n";
-        });
-    } else {
-        const monthStart = dateFns.startOfMonth(currentDate);
-        const monthEnd = dateFns.endOfMonth(currentDate);
-        const daysInMonth = dateFns.eachDayOfInterval({ start: monthStart, end: monthEnd });
-        
-        csvContent += `월:,${dateFns.format(currentDate, 'yyyy년 MM월')}\n\n`;
-        csvContent += "날짜,팀,센터,성명,작업유형,지역,건물,시간,메모,등록자\n";
+        let csvContent = "\uFEFF"; // 한글 깨짐 방지 BOM
 
-        daysInMonth.forEach(day => {
+        // 1. 전체 상단에 필드명(헤더)을 딱 1번만 출력 (일자 컬럼 추가)
+        csvContent += "순번,팀,센터,성명,일자," + VALID_SLOTS.join(',') + "\n";
+
+        // 2. 날짜별 데이터 순회
+        days.forEach(day => {
             const dateKey = dateFns.format(day, 'yyyy-MM-dd');
-            const daySchedule = schedules[dateKey];
-            if (daySchedule) {
+            const dateStr = dateFns.format(day, 'yyyy-MM-dd(E)', { locale: ko }); // 요일도 함께 표기
+            
+            technicians.forEach((tech, index) => {
+                // 3. 성명 옆에 일자(dateStr)를 추가하여 하나의 행으로 만듭니다.
+                let row = `${index + 1},${tech.team},${tech.center},${tech.name},${dateStr}`;
                 const processedTasks = new Set();
-                Object.keys(daySchedule).forEach(key => {
-                    const [techIdStr] = key.split('_');
-                    const techId = parseInt(techIdStr);
-                    const task = daySchedule[key];
-                    
-                    if (!processedTasks.has(task.taskId)) {
-                        processedTasks.add(task.taskId);
-                        const tech = technicians.find(t => t.id === techId);
-                        const workTypeName = workTypes.find(w => w.id === task.workTypeId)?.name || '알수없음';
-                        csvContent += `${dateKey},${tech.team},${tech.center},${tech.name},${workTypeName},"${task.region || ''}","${task.building || ''}","${task.displayTime}","${task.memo || ''}",${task.author}\n`;
+                
+                VALID_SLOTS.forEach(slot => {
+                    const sch = schedules[dateKey]?.[`${tech.id}_${slot}`];
+                    if (sch) {
+                        if (!processedTasks.has(sch.taskId)) {
+                            processedTasks.add(sch.taskId);
+                            const regionInfo = sch.region ? `[${sch.region}] ` : '';
+                            const bldgInfo = sch.building ? `[${sch.building}] ` : '';
+                            row += `,"${sch.title} ${regionInfo}${bldgInfo}(${sch.displayTime}) - ${sch.memo} (${sch.author})"`;
+                        } else {
+                            row += `,"(${sch.title})"`; // 연속 칸에는 작업명 표시
+                        }
+                    } else {
+                        row += ",";
                     }
                 });
-            }
+                csvContent += row + "\n";
+            });
         });
-    }
 
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `일정_${dateFns.format(viewMode === 'daily' ? selectedDate : currentDate, 'yyyyMMdd')}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `HSS_스케줄_${excelStartDate}_부터_${excelEndDate}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        setShowExcelModal(false);
+    } catch (e) {
+        showAlert('날짜 형식이 올바르지 않거나 엑셀 변환 중 오류가 발생했습니다.');
+    }
   };
 
   const renderMonthlyView = () => {
@@ -435,15 +447,14 @@ export default function App() {
     const skipCells = new Set(); 
 
     const getRightBorderStyle = (index) => {
-        if (index === technicians.length - 1) return '2px solid #64748b'; // 표 맨 끝 (굵은 실선)
+        if (index === technicians.length - 1) return '2px solid #64748b'; // 표 맨 끝
         const current = technicians[index];
         const next = technicians[index + 1];
-        if (current.team !== next.team) return '2px solid #64748b'; // 팀간 구별 (굵은 실선)
-        if (current.center !== next.center) return '1px solid #94a3b8'; // 센터간 구별 (얇은 실선)
-        return '1px dashed #cbd5e1'; // 같은 센터 구성원 (얇은 점선)
+        if (current.team !== next.team) return '2px solid #64748b'; // 팀간 구별
+        if (current.center !== next.center) return '1px solid #94a3b8'; // 센터간 구별
+        return '1px dashed #cbd5e1'; // 같은 센터
     };
 
-    // 헤더 병합 그룹화
     const teamGroups = [];
     const centerGroups = [];
     technicians.forEach((tech, i) => {
@@ -511,7 +522,6 @@ export default function App() {
                             let addedLunchIndicator = false;
 
                             VALID_SLOTS.forEach((slot, slotIndex) => {
-                                // 점심시간(12:00~12:50) 처리
                                 if (slot.startsWith("12:")) {
                                     if (!addedLunchIndicator) {
                                         rows.push(
@@ -530,7 +540,7 @@ export default function App() {
                                         );
                                         addedLunchIndicator = true;
                                     }
-                                    return; // 12시대는 행을 그리지 않음
+                                    return; 
                                 }
 
                                 const isHourStart = slot.endsWith(":00");
@@ -539,7 +549,6 @@ export default function App() {
                                 
                                 rows.push(
                                     <tr key={slot} className="transition-colors group" style={{ height: "24px" }}>
-                                        {/* 시간 컬럼 */}
                                         <td className={`sticky left-0 z-20 p-0 text-center ${isAfter18 ? 'bg-red-50/30' : 'bg-white'}`}
                                             style={{ 
                                                 borderRight: '2px solid #64748b', 
@@ -550,7 +559,6 @@ export default function App() {
                                             </div>
                                         </td>
                                         
-                                        {/* 작업자 데이터 컬럼 */}
                                         {technicians.map((tech, index) => {
                                             const cellKey = `${tech.id}_${slot}`;
                                             if (skipCells.has(cellKey)) return null;
@@ -562,13 +570,11 @@ export default function App() {
                                                 
                                                 for (let i = slotIndex + 1; i < VALID_SLOTS.length; i++) {
                                                     const nextSlot = VALID_SLOTS[i];
-                                                    // 점심시간 건너뛰고 계산
                                                     if (nextSlot.startsWith("12:")) continue;
                                                     
                                                     const nextTask = daySchedule[`${tech.id}_${nextSlot}`];
                                                     
                                                     if (nextTask && nextTask.taskId === schedule.taskId) {
-                                                        // 오전 일정이 오후로 넘어갈 땐 분리해서 렌더링 (rowSpan 끊기)
                                                         if (isMorning && nextSlot >= "13:00") break; 
                                                         rSpan++;
                                                         skipCells.add(`${tech.id}_${nextSlot}`);
@@ -589,7 +595,7 @@ export default function App() {
                                                         className={`p-0 align-top relative cursor-pointer transition-all ${wt?.color || 'bg-slate-200 text-slate-800'} shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)] hover:brightness-95 hover:z-10`}
                                                         style={{ 
                                                             borderRight: getRightBorderStyle(index), 
-                                                            borderBottom: '2px solid #64748b' // 스케줄 끝은 항상 진한 실선
+                                                            borderBottom: '2px solid #64748b'
                                                         }}
                                                     >
                                                         <div className="absolute inset-0 w-full h-full flex flex-col p-1.5 overflow-hidden z-10">
@@ -689,7 +695,6 @@ export default function App() {
                 <span className="text-slate-200 font-bold text-base">{userName || '로그인 필요'}</span>
             </div>
             
-            {/* 에러 발생 시 상세 원인을 붉은색 배지로 화면에 직접 표시합니다 */}
             {cloudStatus === 'error' && cloudErrorDetail && (
                 <div className="mt-3 bg-red-500/20 border border-red-500/50 text-red-200 px-4 py-2 rounded-xl text-xs font-bold break-all">
                     🚨 에러 원인: {cloudErrorDetail}
@@ -711,7 +716,12 @@ export default function App() {
                 {viewMode === 'daily' ? <><Calendar size={20} /> 월간 달력 보기</> : <><List size={20} /> 상세 일별 뷰</>}
              </button>
              <button 
-                onClick={downloadCSV}
+                onClick={() => {
+                    const formatted = dateFns.format(selectedDate, 'yyyy-MM-dd');
+                    setExcelStartDate(formatted);
+                    setExcelEndDate(formatted);
+                    setShowExcelModal(true);
+                }}
                 className="flex items-center justify-center gap-2 px-6 py-3.5 bg-indigo-500 text-white rounded-2xl shadow-lg shadow-indigo-500/30 text-base font-bold hover:bg-indigo-400 hover:shadow-indigo-400/40 transition-all hover:-translate-y-1"
              >
                 <Download size={20} />
@@ -721,7 +731,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* Date Controls */}
+        {/* Date Controls (요일 및 토/일 색상 적용) */}
         <div className="flex flex-col sm:flex-row items-center justify-between bg-white p-5 rounded-3xl shadow-md border-2 border-slate-200 gap-4">
           <div className="flex items-center gap-6">
             <button 
@@ -730,11 +740,13 @@ export default function App() {
             >
               <ChevronLeft size={24} className="text-slate-700" />
             </button>
-            <h2 className="text-2xl md:text-3xl font-black text-slate-800 w-64 text-center tracking-tight">
+            
+            <h2 className={`text-2xl md:text-3xl font-black w-80 text-center tracking-tight ${viewMode === 'daily' ? getDateColorClass(selectedDate) : 'text-slate-800'}`}>
               {viewMode === 'daily' 
-                  ? dateFns.format(selectedDate, 'yyyy년 MM월 dd일')
+                  ? dateFns.format(selectedDate, 'yyyy년 MM월 dd일 EEEE', { locale: ko })
                   : dateFns.format(currentDate, 'yyyy년 MM월')}
             </h2>
+            
             <button 
                 onClick={() => viewMode === 'daily' ? setSelectedDate(dateFns.addDays(selectedDate, 1)) : setCurrentDate(dateFns.addMonths(currentDate, 1))}
                 className="p-3 hover:bg-slate-100 rounded-2xl transition-colors bg-slate-50 border-2 border-slate-200 shadow-sm"
@@ -755,7 +767,56 @@ export default function App() {
         {/* Render Views */}
         {viewMode === 'daily' ? renderDailyView() : renderMonthlyView()}
 
-        {}
+        {/* 엑셀 기간 다운로드 모달 */}
+        {showExcelModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[130] p-4 transition-opacity">
+            <div className="bg-white rounded-[2rem] shadow-2xl max-w-sm w-full p-8 border border-slate-100">
+              <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                  <Download className="text-indigo-600" size={22} />
+                  엑셀 다운로드 기간 설정
+                </h3>
+                <button onClick={() => setShowExcelModal(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full p-2 transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-bold text-slate-600 mb-2">시작일</label>
+                <input 
+                  type="date" 
+                  value={excelStartDate} 
+                  onChange={(e) => setExcelStartDate(e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-slate-300 rounded-xl font-bold text-slate-700 bg-white"
+                />
+              </div>
+              <div className="mb-6">
+                <label className="block text-sm font-bold text-slate-600 mb-2">종료일</label>
+                <input 
+                  type="date" 
+                  value={excelEndDate} 
+                  onChange={(e) => setExcelEndDate(e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-slate-300 rounded-xl font-bold text-slate-700 bg-white"
+                />
+              </div>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowExcelModal(false)}
+                  className="flex-1 px-4 py-3.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-bold transition-all"
+                >
+                  취소
+                </button>
+                <button 
+                  onClick={handleDownloadExcelRange}
+                  className="flex-1 px-4 py-3.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-bold shadow-lg shadow-indigo-200 transition-all"
+                >
+                  다운로드
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Alert Modal */}
         {alertConfig.isOpen && (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[110] p-4 transition-opacity">
             <div className="bg-white rounded-[2rem] shadow-2xl max-w-sm w-full p-8 text-center transform transition-all border border-slate-100">
@@ -774,6 +835,7 @@ export default function App() {
           </div>
         )}
 
+        {/* Delete Modal */}
         {deleteConfig.isOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 transition-opacity">
             <div className="bg-white rounded-[2rem] shadow-2xl max-w-md w-full p-8 transform transition-all border border-slate-100">
@@ -844,6 +906,7 @@ export default function App() {
           </div>
         )}
 
+        {/* Add Schedule Modal */}
         {addModalConfig.isOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-y-auto">
             <div className="bg-white rounded-[2rem] shadow-2xl max-w-lg w-full p-6 md:p-8 my-8 border border-slate-100">
@@ -860,7 +923,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* 1. 작업 유형 */}
               <div className="mb-8">
                 <label className="block text-base font-bold text-slate-700 mb-4 flex items-center gap-2">
                     <span className="bg-indigo-100 text-indigo-700 w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span>
@@ -883,7 +945,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 2. 소요 시간 */}
               <div className="mb-8">
                 <label className="block text-base font-bold text-slate-700 mb-4 flex items-center gap-2">
                     <span className="bg-indigo-100 text-indigo-700 w-6 h-6 rounded-full flex items-center justify-center text-sm">2</span>
@@ -921,7 +982,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 3. 장소 상세 */}
               <div className="mb-8 bg-slate-50 p-5 rounded-2xl border border-slate-200">
                 <label className="block text-base font-bold text-slate-700 mb-4 flex items-center gap-2">
                     <span className="bg-indigo-100 text-indigo-700 w-6 h-6 rounded-full flex items-center justify-center text-sm">3</span>
@@ -955,7 +1015,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 4. 상세내용/메모 */}
               <div className="mb-10">
                 <label className="block text-base font-bold text-slate-700 mb-4 flex items-center gap-2">
                     <span className="bg-indigo-100 text-indigo-700 w-6 h-6 rounded-full flex items-center justify-center text-sm">4</span>
@@ -994,6 +1053,7 @@ export default function App() {
           </div>
         )}
 
+        {/* Overtime Modal */}
         {overtimeConfig.isOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4 transition-opacity">
             <div className="bg-white rounded-[2rem] shadow-2xl max-w-sm w-full p-8 text-center transform transition-all border border-slate-100">
@@ -1023,6 +1083,7 @@ export default function App() {
           </div>
         )}
 
+        {/* Name Input Modal */}
         {nameModalOpen && (
           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[150] p-4 transition-opacity">
             <div className="bg-white rounded-[2rem] shadow-2xl max-w-sm w-full p-8 border border-slate-100 transform scale-100">
@@ -1050,7 +1111,7 @@ export default function App() {
                               const nameToSave = tempName.trim();
                               if (!nameToSave) return;
                               if (nameToSave.includes(' ')) {
-                                  showAlert("이름에 띄어쓰기(공백)를 포함할 수 없습니다. 직급을 제외한 이름만 입력해주세요.");
+                                  showAlert("이름에 띄어쓰기(공백)를 포함할 수 없습니다.");
                                   return;
                               }
                               if (currentUserIp) localStorage.setItem(`hc_smss_name_${currentUserIp}`, nameToSave);
