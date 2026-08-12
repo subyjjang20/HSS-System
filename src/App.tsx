@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import * as dateFns from 'date-fns';
-import { ko } from 'date-fns/locale'; // 한글 요일 표시를 위한 로케일
-import { Calendar, List, Download, ChevronLeft, ChevronRight, ShieldCheck, AlertCircle, Info, Trash2, X, User, Zap, Network, Clock, AlignLeft, MapPin, Building2, Cloud } from 'lucide-react';
+import { Calendar, List, Download, ChevronLeft, ChevronRight, ShieldCheck, AlertCircle, Info, Trash2, X, User, Zap, Network, Clock, AlignLeft, MapPin, Building2, Cloud, Upload } from 'lucide-react';
+import { format, getDay, parseISO, eachDayOfInterval } from 'date-fns';
+import { ko } from 'date-fns/locale';
 
-// 사용자 제공 Firebase Config
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, updateDoc, onSnapshot, collection, deleteField } from 'firebase/firestore';
@@ -41,7 +41,6 @@ const workTypes = [
   { id: 'libero', name: '리베로', color: 'bg-purple-100 text-purple-900 border-purple-400 hover:ring-purple-500' },
 ];
 
-// 10분 단위 슬롯 생성 (9:00 ~ 18:50) -> 19:00 마감
 const generateTimeSlots = () => {
     const slots = [];
     for (let h = 9; h <= 18; h++) {
@@ -53,12 +52,10 @@ const generateTimeSlots = () => {
 };
 const VALID_SLOTS = generateTimeSlots();
 
-// 날짜 색상 판별 함수 (토요일: 파란색, 일요일/공휴일: 빨간색)
 const getDateColorClass = (dateObj) => {
     const day = dateFns.getDay(dateObj); // 0: 일요일, 6: 토요일
     const dateStr = dateFns.format(dateObj, 'yyyy-MM-dd');
     
-    // 주요 공휴일 목록 (필요에 따라 연도별 추가 가능)
     const holidays = [
         '2026-01-01', '2026-03-01', '2026-05-05', '2026-06-06', 
         '2026-08-15', '2026-09-24', '2026-09-25', '2026-09-26', 
@@ -88,12 +85,13 @@ export default function App() {
   const [addModalConfig, setAddModalConfig] = useState({ isOpen: false, techId: null, slotKey: null, dateKey: null });
   const [overtimeConfig, setOvertimeConfig] = useState({ isOpen: false, updates: null, dateKey: null });
   
-  // 기간 지정 엑셀 다운로드 상태
   const [showExcelModal, setShowExcelModal] = useState(false);
   const [excelStartDate, setExcelStartDate] = useState(dateFns.format(new Date(), 'yyyy-MM-dd'));
   const [excelEndDate, setExcelEndDate] = useState(dateFns.format(new Date(), 'yyyy-MM-dd'));
   
-  // 폼 초기값 (0시간 0분)
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
   const [addFormWorkType, setAddFormWorkType] = useState('ev');
   const [addFormHours, setAddFormHours] = useState(0); 
   const [addFormMinutes, setAddFormMinutes] = useState(0); 
@@ -127,7 +125,6 @@ export default function App() {
     };
     initUser();
 
-    // Firebase 초기화 및 연결
     let unsubAuth = null;
     let unsubSnapshot = null;
 
@@ -210,7 +207,6 @@ export default function App() {
     let currentIndex = startIndex;
     let blocksCount = 0;
 
-    // 점심시간(12:00~12:50) 건너뛰기
     while (blocksCount < blocksNeeded && currentIndex < VALID_SLOTS.length) {
         const currentSlot = VALID_SLOTS[currentIndex];
         if (currentSlot.startsWith("12:")) {
@@ -256,7 +252,6 @@ export default function App() {
         };
     });
 
-    // 18시 이후 슬롯 포함 시 연장근무 경고
     const hasOvertime = slotsToFill.some(s => s >= "18:00");
     if (hasOvertime) {
         setOvertimeConfig({ isOpen: true, updates, dateKey });
@@ -307,25 +302,21 @@ export default function App() {
     }
   };
 
-  // 기간 지정 엑셀(CSV) 다운로드 함수 (전체 상단 필드명 1줄, 성명 옆 일자 표기)
   const handleDownloadExcelRange = () => {
     try {
         const start = dateFns.parseISO(excelStartDate);
         const end = dateFns.parseISO(excelEndDate);
         const days = dateFns.eachDayOfInterval({ start, end });
         
-        let csvContent = "\uFEFF"; // 한글 깨짐 방지 BOM
+        let csvContent = "\uFEFF"; // BOM for UTF-8 Korean
 
-        // 1. 전체 상단에 필드명(헤더)을 딱 1번만 출력 (일자 컬럼 추가)
         csvContent += "순번,팀,센터,성명,일자," + VALID_SLOTS.join(',') + "\n";
 
-        // 2. 날짜별 데이터 순회
         days.forEach(day => {
             const dateKey = dateFns.format(day, 'yyyy-MM-dd');
-            const dateStr = dateFns.format(day, 'yyyy-MM-dd(E)', { locale: ko }); // 요일도 함께 표기
+            const dateStr = dateFns.format(day, 'yyyy-MM-dd(E)', { locale: ko });
             
             technicians.forEach((tech, index) => {
-                // 3. 성명 옆에 일자(dateStr)를 추가하여 하나의 행으로 만듭니다.
                 let row = `${index + 1},${tech.team},${tech.center},${tech.name},${dateStr}`;
                 const processedTasks = new Set();
                 
@@ -338,7 +329,7 @@ export default function App() {
                             const bldgInfo = sch.building ? `[${sch.building}] ` : '';
                             row += `,"${sch.title} ${regionInfo}${bldgInfo}(${sch.displayTime}) - ${sch.memo} (${sch.author})"`;
                         } else {
-                            row += `,"(${sch.title})"`; // 연속 칸에는 작업명 표시
+                            row += `,"(${sch.title})"`;
                         }
                     } else {
                         row += ",";
@@ -356,11 +347,137 @@ export default function App() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        
         setShowExcelModal(false);
     } catch (e) {
-        showAlert('날짜 형식이 올바르지 않거나 엑셀 변환 중 오류가 발생했습니다.');
+        showAlert('날짜 형식이 올바르지 않거나 다운로드 중 오류가 발생했습니다.');
     }
+  };
+
+  const handleDownloadUploadTemplate = () => {
+      const bom = "\uFEFF";
+      const header = "일자(YYYY-MM-DD),성명,시작시간(HH:MM),작업유형,소요시간(분),지역,건물,메모\n";
+      const example1 = "2026-08-10,구세림,09:00,전기차충전기,120,강남구,더샵아파트,예시 메모입니다\n";
+      const example2 = "2026-08-10,이기훈,13:00,CCTV,60,서초구,자이아파트,\n";
+      const blob = new Blob([bom + header + example1 + example2], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `HSS_일괄등록_템플릿.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
+  const handleFileUpload = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+          const text = event.target.result;
+          setIsUploading(true);
+          try {
+              const lines = text.split('\n');
+              const updatesByDate = {};
+              let successCount = 0;
+
+              const parseCSVRow = (line) => {
+                  let ret = [''], i = 0, s = true;
+                  for (let l = line; i < l.length; i++) {
+                      let c = l[i];
+                      if (c === '"') { s = !s; }
+                      else if (c === ',' && s) { ret.push(''); }
+                      else { ret[ret.length - 1] += c; }
+                  }
+                  return ret.map(x => x.replace(/^"|"$/g, '').trim());
+              };
+
+              for (let i = 1; i < lines.length; i++) {
+                  if (!lines[i].trim()) continue;
+                  const parts = parseCSVRow(lines[i]);
+                  if (parts.length < 5) continue;
+
+                  const [dateStr, techName, startTime, workTypeName, durationStr, region = '', building = '', memo = ''] = parts;
+
+                  const tech = technicians.find(t => t.name === techName);
+                  const workType = workTypes.find(w => w.name === workTypeName);
+                  const totalMinutes = parseInt(durationStr, 10);
+                  const slotKey = startTime;
+                  const dateKey = dateStr;
+
+                  if (!tech || !workType || isNaN(totalMinutes) || !VALID_SLOTS.includes(slotKey) || !dateKey.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                      continue; 
+                  }
+
+                  const blocksNeeded = Math.ceil(totalMinutes / 10);
+                  const startIndex = VALID_SLOTS.indexOf(slotKey);
+                  let slotsToFill = [];
+                  let currentIndex = startIndex;
+                  let blocksCount = 0;
+
+                  while (blocksCount < blocksNeeded && currentIndex < VALID_SLOTS.length) {
+                      const currentSlot = VALID_SLOTS[currentIndex];
+                      if (currentSlot.startsWith("12:")) {
+                          currentIndex++;
+                          continue;
+                      }
+                      slotsToFill.push(currentSlot);
+                      blocksCount++;
+                      currentIndex++;
+                  }
+
+                  if (slotsToFill.length === 0) continue;
+
+                  const taskId = `bulk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                  let displayTime = '';
+                  const hours = Math.floor(totalMinutes / 60);
+                  const mins = totalMinutes % 60;
+                  if (hours > 0) displayTime += `${hours}시간 `;
+                  if (mins > 0) displayTime += `${mins}분`;
+                  displayTime = displayTime.trim();
+
+                  if (!updatesByDate[dateKey]) updatesByDate[dateKey] = {};
+
+                  slotsToFill.forEach((s, idx) => {
+                      updatesByDate[dateKey][`${tech.id}_${s}`] = {
+                          workTypeId: workType.id,
+                          title: workType.name,
+                          region: region,
+                          building: building,
+                          memo: memo,
+                          displayTime: displayTime,
+                          author: userName || '일괄업로드',
+                          taskId: taskId,
+                          isStart: idx === 0,
+                          duration: blocksNeeded
+                      };
+                  });
+                  successCount++;
+              }
+
+              if (successCount === 0) {
+                  showAlert("등록 가능한 일정이 없거나 양식이 올바르지 않습니다. 템플릿 양식을 확인해 주세요.");
+                  setIsUploading(false);
+                  return;
+              }
+
+              const promises = Object.keys(updatesByDate).map(dKey => {
+                  const docRef = doc(dbInstance, 'artifacts', 'hss-system', 'public', 'data', 'schedules', dKey);
+                  return setDoc(docRef, updatesByDate[dKey], { merge: true });
+              });
+
+              await Promise.all(promises);
+              showAlert(`총 ${successCount}개의 일정이 성공적으로 일괄 등록되었습니다!`);
+              setUploadModalOpen(false);
+          } catch (error) {
+              console.error("Upload error:", error);
+              showAlert("업로드 처리 중 오류가 발생했습니다.");
+          } finally {
+              setIsUploading(false);
+          }
+      };
+      reader.readAsText(file, "UTF-8");
+      e.target.value = '';
   };
 
   const renderMonthlyView = () => {
@@ -447,12 +564,12 @@ export default function App() {
     const skipCells = new Set(); 
 
     const getRightBorderStyle = (index) => {
-        if (index === technicians.length - 1) return '2px solid #64748b'; // 표 맨 끝
+        if (index === technicians.length - 1) return '2px solid #64748b';
         const current = technicians[index];
         const next = technicians[index + 1];
-        if (current.team !== next.team) return '2px solid #64748b'; // 팀간 구별
-        if (current.center !== next.center) return '1px solid #94a3b8'; // 센터간 구별
-        return '1px dashed #cbd5e1'; // 같은 센터
+        if (current.team !== next.team) return '2px solid #64748b';
+        if (current.center !== next.center) return '1px solid #94a3b8';
+        return '1px dashed #cbd5e1';
     };
 
     const teamGroups = [];
@@ -716,6 +833,13 @@ export default function App() {
                 {viewMode === 'daily' ? <><Calendar size={20} /> 월간 달력 보기</> : <><List size={20} /> 상세 일별 뷰</>}
              </button>
              <button 
+                onClick={() => setUploadModalOpen(true)}
+                className="flex items-center justify-center gap-2 px-6 py-3.5 bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-500/30 text-base font-bold hover:bg-emerald-400 hover:shadow-emerald-400/40 transition-all hover:-translate-y-1"
+             >
+                <Upload size={20} />
+                일괄 업로드
+             </button>
+             <button 
                 onClick={() => {
                     const formatted = dateFns.format(selectedDate, 'yyyy-MM-dd');
                     setExcelStartDate(formatted);
@@ -731,7 +855,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* Date Controls (요일 및 토/일 색상 적용) */}
+        {/* Date Controls */}
         <div className="flex flex-col sm:flex-row items-center justify-between bg-white p-5 rounded-3xl shadow-md border-2 border-slate-200 gap-4">
           <div className="flex items-center gap-6">
             <button 
@@ -812,6 +936,62 @@ export default function App() {
                   다운로드
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* 엑셀 일괄 업로드 모달 */}
+        {uploadModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[130] p-4 transition-opacity">
+            <div className="bg-white rounded-[2rem] shadow-2xl max-w-md w-full p-8 border border-slate-100 relative">
+              {isUploading && (
+                  <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-[2rem]">
+                      <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                      <p className="font-bold text-slate-700">데이터를 클라우드에 등록하는 중입니다...</p>
+                  </div>
+              )}
+              
+              <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                  <Upload className="text-emerald-600" size={22} />
+                  엑셀(CSV) 일괄 등록
+                </h3>
+                <button onClick={() => setUploadModalOpen(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full p-2 transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 mb-6">
+                  <p className="text-sm text-emerald-800 font-bold mb-2">💡 일괄 등록 방법</p>
+                  <ol className="text-xs text-emerald-700 space-y-1.5 ml-4 list-decimal">
+                      <li>아래 버튼을 눌러 <strong>업로드용 템플릿</strong>을 다운로드합니다.</li>
+                      <li>양식에 맞게 엑셀에서 일정을 작성하고 <strong className="text-red-500 text-[11px] bg-red-100 px-1 rounded">CSV 파일</strong> 형식으로 저장합니다. (기존 일정과 시간이 겹치면 덮어씁니다.)</li>
+                      <li>저장된 파일을 아래에서 선택하면 자동으로 등록됩니다.</li>
+                  </ol>
+                  <button 
+                      onClick={handleDownloadUploadTemplate}
+                      className="mt-3 w-full py-2.5 bg-white text-emerald-700 border border-emerald-200 rounded-lg shadow-sm font-bold text-sm hover:bg-emerald-100 transition-colors"
+                  >
+                      📄 업로드용 템플릿(양식) 다운로드
+                  </button>
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-sm font-bold text-slate-600 mb-2">작성 완료된 CSV 파일 선택</label>
+                <input 
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileUpload}
+                  className="w-full text-sm text-slate-500 file:mr-4 file:py-3 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 transition-all border-2 border-dashed border-slate-300 rounded-xl p-2 cursor-pointer focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+
+              <button 
+                onClick={() => setUploadModalOpen(false)}
+                className="w-full px-4 py-3.5 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 font-bold transition-all"
+              >
+                닫기
+              </button>
             </div>
           </div>
         )}
