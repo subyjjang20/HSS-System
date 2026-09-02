@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import * as dateFns from 'date-fns';
 import { 
-  Calendar, List, Download, ChevronLeft, ChevronRight, AlertCircle, 
+  Calendar, List, Download, Upload, ChevronLeft, ChevronRight, AlertCircle, 
   Info, Trash2, X, User, Zap, Network, Clock, AlignLeft, 
-  MapPin, Building2, Cloud, UserPlus, Users, Edit2, PlusCircle, Check
+  MapPin, Building2, Cloud, Users, Edit2, PlusCircle
 } from 'lucide-react';
 import { format, getDay, parseISO, eachDayOfInterval } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -39,7 +39,7 @@ const defaultTechnicians = [
   { id: 14, team: '남부', center: '양산센터', name: '이원진' },
 ];
 
-// 작업 유형 및 디폴트 시간 설정 (전기차 3시간, 나머지 8시간)
+// 작업 유형 및 디폴트 시간 설정
 const workTypes = [
   { id: 'ev', name: '전기차충전기', color: 'bg-blue-100 text-blue-900 border-blue-400 hover:ring-blue-500', defaultHours: 3, defaultMinutes: 0 },
   { id: 'cctv', name: 'CCTV', color: 'bg-emerald-100 text-emerald-900 border-emerald-400 hover:ring-emerald-500', defaultHours: 8, defaultMinutes: 0 },
@@ -102,14 +102,15 @@ export default function App() {
   const [inputName, setInputName] = useState('');
   const [techAdminPw, setTechAdminPw] = useState('');
 
-  // 엑셀 기간 다운로드
+  // 엑셀 기간 다운로드 및 업로드
   const [showExcelModal, setShowExcelModal] = useState(false);
   const [excelStartDate, setExcelStartDate] = useState(dateFns.format(new Date(), 'yyyy-MM-dd'));
   const [excelEndDate, setExcelEndDate] = useState(dateFns.format(new Date(), 'yyyy-MM-dd'));
+  const [showUploadModal, setShowUploadModal] = useState(false);
   
   // 일정 추가(수정) 폼
   const [addFormWorkType, setAddFormWorkType] = useState('ev');
-  const [addFormHours, setAddFormHours] = useState(3); // 기본 EV 3시간
+  const [addFormHours, setAddFormHours] = useState(3); 
   const [addFormMinutes, setAddFormMinutes] = useState(0); 
   const [addFormRegion, setAddFormRegion] = useState('');
   const [addFormBuilding, setAddFormBuilding] = useState('');
@@ -210,7 +211,7 @@ export default function App() {
     } else {
       setAddModalConfig({ isOpen: true, techId, slotKey, dateKey, editTaskId: null });
       setAddFormWorkType('ev');
-      setAddFormHours(3); // 전기차 기본 3시간
+      setAddFormHours(3);
       setAddFormMinutes(0);
       setAddFormRegion('');
       setAddFormBuilding('');
@@ -433,7 +434,7 @@ export default function App() {
       setInputCenter('');
       setInputName('');
       setTechAdminPw('');
-      showAlert(techFormMode === 'add' ? "담당자가 추가되었습니다." : "담당자 정보가 수정되었습니다.");
+      showAlert(techFormMode === 'add' ? "매니저가 추가되었습니다." : "매니저 정보가 수정되었습니다.");
     } catch (e) {
       showAlert("저장 중 오류가 발생했습니다.");
     }
@@ -504,6 +505,125 @@ export default function App() {
     } catch (e) {
         showAlert('날짜 형식이 올바르지 않거나 오류가 발생했습니다.');
     }
+  };
+
+  // 엑셀 업로드 템플릿 다운로드
+  const handleDownloadTemplate = () => {
+    let csvContent = "\uFEFF";
+    csvContent += "날짜(YYYY-MM-DD),매니저명,작업유형(ev/cctv/maint/libero/vacation),시작시간(HH:MM),소요시간(분),지역,건물,메모\n";
+    csvContent += "2026-09-02,구세림,ev,09:00,180,강남구,더샵아파트,장비 교체\n";
+    csvContent += "2026-09-02,이기훈,cctv,13:00,480,서초구,타워팰리스,정기 점검\n";
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'HSS_일정_업로드_양식.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // 엑셀(CSV) 파일 업로드 및 처리
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !dbInstance) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+        try {
+            const text = event.target?.result as string;
+            const lines = text.split('\n').filter(l => l.trim().length > 0);
+            
+            // 첫 줄(헤더) 제외하고 순회
+            if (lines.length <= 1) {
+                showAlert("업로드된 파일에 데이터가 없습니다.");
+                return;
+            }
+
+            let successCount = 0;
+            const dailyUpdatesMap: Record<string, Record<string, any>> = {};
+
+            for (let i = 1; i < lines.length; i++) {
+                const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+                if (cols.length < 5) continue;
+
+                const [dateStr, techName, wtId, startTime, durationMinStr, region = '', building = '', memo = ''] = cols;
+                
+                // 유효성 체크
+                const tech = techniciansList.find(t => t.name === techName);
+                const workType = workTypes.find(w => w.id === wtId);
+                const durationMin = parseInt(durationMinStr);
+
+                if (!tech || !workType || !dateStr || !startTime || isNaN(durationMin)) {
+                    continue; // 잘못된 행은 스킵
+                }
+
+                const startIndex = VALID_SLOTS.indexOf(startTime);
+                if (startIndex === -1) continue;
+
+                const blocksNeeded = Math.ceil(durationMin / 10);
+                let slotsToFill = [];
+                let currentIndex = startIndex;
+                let blocksCount = 0;
+
+                while (blocksCount < blocksNeeded && currentIndex < VALID_SLOTS.length) {
+                    const currentSlot = VALID_SLOTS[currentIndex];
+                    if (currentSlot.startsWith("12:")) {
+                        currentIndex++;
+                        continue;
+                    }
+                    slotsToFill.push(currentSlot);
+                    blocksCount++;
+                    currentIndex++;
+                }
+
+                if (slotsToFill.length === 0) continue;
+
+                const hours = Math.floor(durationMin / 60);
+                const minutes = durationMin % 60;
+                let displayTime = '';
+                if (hours > 0) displayTime += `${hours}시간 `;
+                if (minutes > 0) displayTime += `${minutes}분`;
+                displayTime = displayTime.trim();
+
+                const taskId = `task_upl_${Date.now()}_${Math.random().toString(36).substr(2, 5)}_${i}`;
+                
+                if (!dailyUpdatesMap[dateStr]) {
+                    dailyUpdatesMap[dateStr] = {};
+                }
+
+                slotsToFill.forEach((s, idx) => {
+                    dailyUpdatesMap[dateStr][`${tech.id}_${s}`] = {
+                        workTypeId: workType.id,
+                        title: workType.name,
+                        region: region,
+                        building: building,
+                        memo: memo,
+                        displayTime: displayTime,
+                        author: userName || '엑셀업로드',
+                        taskId: taskId,
+                        isStart: idx === 0,
+                        duration: blocksNeeded
+                    };
+                });
+                successCount++;
+            }
+
+            // 파이어베이스에 날짜별로 일괄 저장
+            for (const [dateKey, updates] of Object.entries(dailyUpdatesMap)) {
+                const docRef = doc(dbInstance, 'artifacts', 'hss-system', 'public', 'data', 'schedules', dateKey);
+                await setDoc(docRef, updates, { merge: true });
+            }
+
+            showAlert(`총 ${successCount}건의 일정이 성공적으로 업로드되었습니다.`);
+            setShowUploadModal(false);
+        } catch (err) {
+            showAlert("파일을 읽는 중 오류가 발생했습니다. CSV 양식을 확인해 주세요.");
+        }
+    };
+    reader.readAsText(file, 'UTF-8');
+    e.target.value = ''; // 초기화
   };
 
   const renderMonthlyView = () => {
@@ -857,10 +977,10 @@ export default function App() {
               <span>헬로커넥트앤</span>
             </div>
             
-            <div className="flex items-center gap-2 sm:gap-3 w-full justify-center md:justify-end">
+            <div className="flex items-center gap-2 sm:gap-3 w-full justify-center md:justify-end flex-wrap">
              <button 
                 onClick={() => setViewMode(viewMode === 'daily' ? 'monthly' : 'daily')}
-                className="flex flex-1 md:flex-none items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-3 bg-slate-800/90 border border-slate-600 rounded-xl sm:rounded-2xl shadow-lg text-xs sm:text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white transition-all backdrop-blur-sm"
+                className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-3 bg-slate-800/90 border border-slate-600 rounded-xl sm:rounded-2xl shadow-lg text-xs sm:text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white transition-all backdrop-blur-sm"
              >
                 {viewMode === 'daily' ? <><Calendar className="w-4 h-4 sm:w-5 sm:h-5" /> 월간 보기</> : <><List className="w-4 h-4 sm:w-5 sm:h-5" /> 일별 보기</>}
              </button>
@@ -871,17 +991,17 @@ export default function App() {
                     setExcelEndDate(formatted);
                     setShowExcelModal(true);
                 }}
-                className="flex flex-1 md:flex-none items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-3 bg-indigo-500 text-white rounded-xl sm:rounded-2xl shadow-lg shadow-indigo-500/30 text-xs sm:text-sm font-bold hover:bg-indigo-400 transition-all"
+                className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-3 bg-indigo-500 text-white rounded-xl sm:rounded-2xl shadow-lg shadow-indigo-500/30 text-xs sm:text-sm font-bold hover:bg-indigo-400 transition-all"
              >
                 <Download className="w-4 h-4 sm:w-5 sm:h-5" />
                 엑셀 다운로드
              </button>
              <button 
-                onClick={() => setTechModalOpen(true)}
-                className="hidden sm:flex items-center justify-center gap-1.5 px-4 py-3 bg-slate-700 text-slate-200 rounded-2xl text-sm font-bold hover:bg-slate-600 transition-all border border-slate-600"
+                onClick={() => setShowUploadModal(true)}
+                className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-3 bg-emerald-600 text-white rounded-xl sm:rounded-2xl shadow-lg shadow-emerald-500/30 text-xs sm:text-sm font-bold hover:bg-emerald-500 transition-all"
              >
-                <Users className="w-4 h-4" />
-                매니저 명단
+                <Upload className="w-4 h-4 sm:w-5 sm:h-5" />
+                엑셀 일괄 업로드
              </button>
             </div>
           </div>
@@ -1062,7 +1182,7 @@ export default function App() {
           </div>
         )}
 
-        {/* 엑셀 다운로드 모달 */}
+        {/* 엑셀 기간 다운로드 모달 */}
         {showExcelModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[130] p-4 transition-opacity">
             <div className="bg-white rounded-2xl sm:rounded-[2rem] shadow-2xl max-w-[90vw] sm:max-w-sm w-full p-6 sm:p-8 border border-slate-100">
@@ -1111,6 +1231,55 @@ export default function App() {
           </div>
         )}
 
+        {/* 엑셀 일괄 업로드 모달 */}
+        {showUploadModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[130] p-4 transition-opacity">
+            <div className="bg-white rounded-2xl sm:rounded-[2rem] shadow-2xl max-w-[90vw] sm:max-w-md w-full p-6 sm:p-8 border border-slate-100">
+              <div className="flex justify-between items-center mb-4 sm:mb-6 border-b border-slate-100 pb-3 sm:pb-4">
+                <h3 className="text-base sm:text-xl font-black text-slate-800 flex items-center gap-2">
+                  <Upload className="text-emerald-600 w-4 h-4 sm:w-5 sm:h-5" />
+                  엑셀(CSV) 일괄 업로드
+                </h3>
+                <button onClick={() => setShowUploadModal(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full p-1.5 sm:p-2">
+                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              </div>
+              
+              <div className="mb-6 space-y-4">
+                <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
+                  표준 양식(CSV) 파일을 작성하여 업로드하면 수많은 일정을 클라우드에 한 번에 등록할 수 있습니다.
+                </p>
+                <button 
+                  onClick={handleDownloadTemplate}
+                  className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all border border-slate-200"
+                >
+                  <Download className="w-4 h-4" />
+                  업로드용 양식(템플릿) 다운로드
+                </button>
+                
+                <div className="pt-2">
+                  <label className="block text-xs sm:text-sm font-bold text-slate-700 mb-2">작성한 CSV 파일 선택</label>
+                  <input 
+                    type="file" 
+                    accept=".csv"
+                    onChange={handleFileUpload}
+                    className="w-full text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button 
+                  onClick={() => setShowUploadModal(false)}
+                  className="w-full py-3 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-900 transition-all shadow-md"
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 알림 모달 */}
         {alertConfig.isOpen && (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[150] p-4 transition-opacity">
@@ -1130,7 +1299,7 @@ export default function App() {
           </div>
         )}
 
-        {/* 일정 상세 정보 (마우스오버 툴팁과 동일한 모든 내용 표기) 및 수정/삭제 모달 */}
+        {/* 일정 상세 정보 및 수정/삭제 모달 */}
         {deleteConfig.isOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 transition-opacity">
             <div className="bg-white rounded-2xl sm:rounded-[2rem] shadow-2xl max-w-[90vw] sm:max-w-md w-full p-5 sm:p-8 border border-slate-100">
@@ -1188,7 +1357,6 @@ export default function App() {
                   onChange={(e) => setDeleteConfig({...deleteConfig, password: e.target.value})}
                   placeholder="숫자 4자리"
                   className="w-32 sm:w-40 mx-auto block px-3 sm:px-4 py-2 sm:py-3 border-2 border-slate-300 rounded-lg sm:rounded-xl shadow-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 text-center tracking-[0.3em] sm:tracking-widest text-base sm:text-lg font-black transition-all"
-                  //autoFocus
                 />
               </div>
               
@@ -1250,7 +1418,6 @@ export default function App() {
                       }`}
                     >
                       {wt.name}
-                     
                     </button>
                   ))}
                 </div>
