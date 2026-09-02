@@ -575,7 +575,7 @@ export default function App() {
                     className="flex items-center gap-1 sm:gap-1.5 bg-white border border-indigo-200 text-indigo-700 px-2 sm:px-3 py-1 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold hover:bg-indigo-50 shadow-sm transition-all"
                 >
                     <Users className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-600" />
-                    <span>솔루션매니저 관리</span>
+                    <span>매니저 관리</span>
                 </button>
             </div>
 
