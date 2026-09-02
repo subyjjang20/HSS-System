@@ -547,7 +547,6 @@ export default function App() {
                 const line = lines[i].trim();
                 if (!line) continue;
                 
-                // 탭(Tab) 또는 쉼표(,) 구분 자동 인식
                 const delimiter = line.includes('\t') ? '\t' : ',';
                 const cols = line.split(delimiter).map(c => c.trim().replace(/^"|"$/g, ''));
                 if (cols.length < 5) continue;
@@ -1249,7 +1248,7 @@ export default function App() {
               
               <div className="mb-6 space-y-4">
                 <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
-                  보안 프로그램(Fasoo 등)으로 인해 엑셀 업로드가 안될 때, 메모장(<span className="font-bold text-slate-800">.txt</span>) 파일을 작성하여 일괄 등록할 수 있습니다.
+                  엑셀에서 작업 후 내용 복사하여 메모장(<span className="font-bold text-slate-800">.txt</span>) 파일로 저장후 업로드 하면 됩니다.
                 </p>
                 <button 
                   onClick={handleDownloadTemplate}
@@ -1508,7 +1507,7 @@ export default function App() {
                       type="text" 
                       value={addFormMemo}
                       onChange={(e) => setAddFormMemo(e.target.value)}
-                      className="w-full pl-9 sm:pl-12 pr-3 sm:pr-4 py-2.5 sm:py-4 border-2 border-slate-300 rounded-lg sm:rounded-xl shadow-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold text-sm sm:text-lg transition-all"
+                      className="w-full pl-9 sm:pl-12 pr-3 sm:pr-4 py-2.5 sm:py-4 border-2 border-slate-300 rounded-lg sm:rounded-2xl shadow-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold text-sm sm:text-lg transition-all"
                       placeholder="예: 장비 교체 등"
                     />
                 </div>
