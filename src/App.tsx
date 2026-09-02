@@ -928,7 +928,7 @@ export default function App() {
               <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                 <h3 className="text-lg sm:text-2xl font-black text-slate-800 flex items-center gap-2">
                   <Users className="text-indigo-600 w-5 h-5 sm:w-6 sm:h-6" />
-                  매니저(담당자) 명단 관리
+                  매니저 관리
                 </h3>
                 <button onClick={() => setTechModalOpen(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full p-1.5 sm:p-2">
                   <X className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1188,7 +1188,7 @@ export default function App() {
                   onChange={(e) => setDeleteConfig({...deleteConfig, password: e.target.value})}
                   placeholder="숫자 4자리"
                   className="w-32 sm:w-40 mx-auto block px-3 sm:px-4 py-2 sm:py-3 border-2 border-slate-300 rounded-lg sm:rounded-xl shadow-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 text-center tracking-[0.3em] sm:tracking-widest text-base sm:text-lg font-black transition-all"
-                  autoFocus
+                  //autoFocus
                 />
               </div>
               
