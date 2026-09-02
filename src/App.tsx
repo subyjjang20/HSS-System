@@ -1236,7 +1236,7 @@ export default function App() {
               <div className="mb-4 sm:mb-8">
                 <label className="block text-xs sm:text-base font-bold text-slate-700 mb-2 sm:mb-4 flex items-center gap-2">
                     <span className="bg-indigo-100 text-indigo-700 w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-[10px] sm:text-sm">1</span>
-                    작업 유형 선택 (유형별 디폴트 시간 적용)
+                    작업 유형
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
                   {workTypes.map(wt => (
@@ -1250,9 +1250,7 @@ export default function App() {
                       }`}
                     >
                       {wt.name}
-                      <span className="text-[10px] opacity-70 font-normal">
-                        ({wt.defaultHours}시간)
-                      </span>
+                     
                     </button>
                   ))}
                 </div>
