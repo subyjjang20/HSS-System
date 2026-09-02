@@ -39,11 +39,13 @@ const defaultTechnicians = [
   { id: 14, team: '남부', center: '양산센터', name: '이원진' },
 ];
 
+// 작업 유형 및 디폴트 시간 설정 (전기차 3시간, 나머지 8시간)
 const workTypes = [
-  { id: 'ev', name: '전기차충전기', color: 'bg-blue-100 text-blue-900 border-blue-400 hover:ring-blue-500' },
-  { id: 'cctv', name: 'CCTV', color: 'bg-emerald-100 text-emerald-900 border-emerald-400 hover:ring-emerald-500' },
-  { id: 'maint', name: '정보통신유지보수', color: 'bg-amber-100 text-amber-900 border-amber-400 hover:ring-amber-500' },
-  { id: 'libero', name: '리베로', color: 'bg-purple-100 text-purple-900 border-purple-400 hover:ring-purple-500' },
+  { id: 'ev', name: '전기차충전기', color: 'bg-blue-100 text-blue-900 border-blue-400 hover:ring-blue-500', defaultHours: 3, defaultMinutes: 0 },
+  { id: 'cctv', name: 'CCTV', color: 'bg-emerald-100 text-emerald-900 border-emerald-400 hover:ring-emerald-500', defaultHours: 8, defaultMinutes: 0 },
+  { id: 'maint', name: '정보통신유지보수', color: 'bg-amber-100 text-amber-900 border-amber-400 hover:ring-amber-500', defaultHours: 8, defaultMinutes: 0 },
+  { id: 'libero', name: '리베로', color: 'bg-purple-100 text-purple-900 border-purple-400 hover:ring-purple-500', defaultHours: 8, defaultMinutes: 0 },
+  { id: 'vacation', name: '휴가', color: 'bg-rose-100 text-rose-900 border-rose-400 hover:ring-rose-500', defaultHours: 8, defaultMinutes: 0 },
 ];
 
 // 10분 단위 슬롯 생성 (09:00 ~ 18:50)
@@ -88,7 +90,7 @@ export default function App() {
   // 모달 관리 상태들
   const [alertConfig, setAlertConfig] = useState({ isOpen: false, message: '' });
   const [deleteConfig, setDeleteConfig] = useState<{isOpen: boolean, dateKey: string|null, techId: number|null, existingSchedule: any, password: string}>({ isOpen: false, dateKey: null, techId: null, existingSchedule: null, password: '' });
-  const [addModalConfig, setAddModalConfig] = useState<{isOpen: boolean, techId: number|null, slotKey: string|null, dateKey: string|null}>({ isOpen: false, techId: null, slotKey: null, dateKey: null });
+  const [addModalConfig, setAddModalConfig] = useState<{isOpen: boolean, techId: number|null, slotKey: string|null, dateKey: string|null, editTaskId?: string|null}>({ isOpen: false, techId: null, slotKey: null, dateKey: null });
   const [overtimeConfig, setOvertimeConfig] = useState<{isOpen: boolean, updates: any, dateKey: string|null}>({ isOpen: false, updates: null, dateKey: null });
   const [techModalOpen, setTechModalOpen] = useState(false);
   
@@ -105,9 +107,9 @@ export default function App() {
   const [excelStartDate, setExcelStartDate] = useState(dateFns.format(new Date(), 'yyyy-MM-dd'));
   const [excelEndDate, setExcelEndDate] = useState(dateFns.format(new Date(), 'yyyy-MM-dd'));
   
-  // 일정 추가 폼
+  // 일정 추가(수정) 폼
   const [addFormWorkType, setAddFormWorkType] = useState('ev');
-  const [addFormHours, setAddFormHours] = useState(0); 
+  const [addFormHours, setAddFormHours] = useState(3); // 기본 EV 3시간
   const [addFormMinutes, setAddFormMinutes] = useState(0); 
   const [addFormRegion, setAddFormRegion] = useState('');
   const [addFormBuilding, setAddFormBuilding] = useState('');
@@ -181,7 +183,6 @@ export default function App() {
                     if (docSnap.exists() && docSnap.data().list) {
                         setTechniciansList(docSnap.data().list);
                     } else {
-                        // 최초 1회 기본 명단 업로드
                         setDoc(techDocRef, { list: defaultTechnicians }, { merge: true });
                     }
                 });
@@ -207,9 +208,9 @@ export default function App() {
     if (existingSchedule) {
       setDeleteConfig({ isOpen: true, dateKey, techId, existingSchedule, password: '' });
     } else {
-      setAddModalConfig({ isOpen: true, techId, slotKey, dateKey });
+      setAddModalConfig({ isOpen: true, techId, slotKey, dateKey, editTaskId: null });
       setAddFormWorkType('ev');
-      setAddFormHours(0);
+      setAddFormHours(3); // 전기차 기본 3시간
       setAddFormMinutes(0);
       setAddFormRegion('');
       setAddFormBuilding('');
@@ -217,8 +218,17 @@ export default function App() {
     }
   };
 
+  const handleWorkTypeChange = (wtId: string) => {
+    setAddFormWorkType(wtId);
+    const found = workTypes.find(w => w.id === wtId);
+    if (found) {
+        setAddFormHours(found.defaultHours);
+        setAddFormMinutes(found.defaultMinutes);
+    }
+  };
+
   const handlePreSubmitAddSchedule = () => {
-    const { techId, slotKey, dateKey } = addModalConfig;
+    const { techId, slotKey, dateKey, editTaskId } = addModalConfig;
     const workType = workTypes.find(wt => wt.id === addFormWorkType);
     
     if (!techId || !slotKey || !dateKey || !workType) return;
@@ -253,7 +263,12 @@ export default function App() {
          return;
     }
 
-    const hasOverlap = slotsToFill.some(s => currentDaySchedule[`${techId}_${s}`]);
+    const hasOverlap = slotsToFill.some(s => {
+        const existing = currentDaySchedule[`${techId}_${s}`];
+        if (existing && existing.taskId === editTaskId) return false;
+        return !!existing;
+    });
+
     if (hasOverlap) {
         showAlert("선택한 시간대에 이미 다른 일정이 등록되어 있어 중복됩니다.");
         return;
@@ -264,8 +279,16 @@ export default function App() {
     if (addFormMinutes > 0) displayTime += `${addFormMinutes}분`;
     displayTime = displayTime.trim();
 
-    const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const taskId = editTaskId || `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const updates: Record<string, any> = {};
+
+    if (editTaskId) {
+        Object.keys(currentDaySchedule).forEach(key => {
+            if (key.startsWith(`${techId}_`) && currentDaySchedule[key].taskId === editTaskId) {
+                updates[key] = deleteField();
+            }
+        });
+    }
 
     slotsToFill.forEach((s, index) => {
         updates[`${techId}_${s}`] = {
@@ -301,6 +324,37 @@ export default function App() {
     } catch (err) {
         showAlert("클라우드 저장 중 오류가 발생했습니다.");
     }
+  };
+
+  const handleEditClick = () => {
+    if (deleteConfig.password !== '1470') {
+      showAlert("관리자 코드가 일치하지 않습니다.");
+      return;
+    }
+
+    const { dateKey, techId, existingSchedule } = deleteConfig;
+    if (!dateKey || !techId || !existingSchedule) return;
+
+    const currentDaySchedule = schedules[dateKey] || {};
+    const taskIdToEdit = existingSchedule.taskId;
+
+    const startSlot = VALID_SLOTS.find(s => currentDaySchedule[`${techId}_${s}`]?.taskId === taskIdToEdit);
+    if (!startSlot) return;
+
+    const durationBlocks = existingSchedule.duration || 1;
+    const totalMinutes = durationBlocks * 10;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    setAddFormWorkType(existingSchedule.workTypeId);
+    setAddFormHours(hours);
+    setAddFormMinutes(minutes);
+    setAddFormRegion(existingSchedule.region || '');
+    setAddFormBuilding(existingSchedule.building || '');
+    setAddFormMemo(existingSchedule.memo || '');
+
+    setAddModalConfig({ isOpen: true, techId, slotKey: startSlot, dateKey, editTaskId: taskIdToEdit });
+    setDeleteConfig({ isOpen: false, dateKey: null, techId: null, existingSchedule: null, password: '' });
   };
 
   const submitDeleteSchedule = async () => {
@@ -361,7 +415,6 @@ export default function App() {
       });
     }
 
-    // 팀 및 센터 기준 정렬
     const teamOrder: Record<string, number> = { '수도권': 1, '동부': 2, '남부': 3 };
     updatedList.sort((a, b) => {
       const orderA = teamOrder[a.team] || 99;
@@ -375,7 +428,6 @@ export default function App() {
       const techDocRef = doc(dbInstance, 'artifacts', 'hss-system', 'public', 'data', 'settings', 'technicians');
       await setDoc(techDocRef, { list: updatedList }, { merge: true });
       
-      // 초기화
       setTechFormMode('add');
       setEditingTechId(null);
       setInputCenter('');
@@ -572,14 +624,13 @@ export default function App() {
                 </span>
                 <button
                     onClick={() => setTechModalOpen(true)}
-                    className="flex items-center gap-1 sm:gap-1.5 bg-white border border-indigo-200 text-indigo-700 px-2 sm:px-3 py-1 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold hover:bg-indigo-50 shadow-sm transition-all"
+                    className="flex items-center gap-1 sm:gap-1.5 bg-white border border-indigo-200 text-indigo-700 px-2 sm:px-3 py-1 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold hover:bg-indigo-50 shadow-sm transition-all whitespace-nowrap"
                 >
                     <Users className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-600" />
                     <span>매니저 관리</span>
                 </button>
             </div>
 
-            {/* 모바일 화면 가로/세로 스크롤 최적화 */}
             <div className="overflow-x-auto overflow-y-auto flex-1 relative custom-scrollbar">
                 <table className="w-max min-w-full border-separate border-spacing-0 table-fixed select-none">
                     <thead className="sticky top-0 z-30 shadow-sm bg-white">
@@ -836,7 +887,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* Date Controls (단축 날짜 포맷 적용: 26.09.02(수)) */}
+        {/* Date Controls */}
         <div className="flex flex-col sm:flex-row items-center justify-between bg-white p-3 sm:p-5 rounded-2xl sm:rounded-3xl shadow-md border-2 border-slate-200 gap-3 sm:gap-4">
           <div className="flex items-center justify-between w-full sm:w-auto gap-2 sm:gap-6">
             <button 
@@ -870,7 +921,7 @@ export default function App() {
         {/* Views */}
         {viewMode === 'daily' ? renderDailyView() : renderMonthlyView()}
 
-        {}
+        {/* 기술자 관리 모달 */}
         {techModalOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[140] p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl sm:rounded-[2rem] shadow-2xl max-w-[95vw] sm:max-w-2xl w-full p-5 sm:p-8 border border-slate-100 max-h-[90vh] flex flex-col">
@@ -1011,7 +1062,6 @@ export default function App() {
           </div>
         )}
 
-        {}
         {/* 엑셀 다운로드 모달 */}
         {showExcelModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[130] p-4 transition-opacity">
@@ -1080,16 +1130,16 @@ export default function App() {
           </div>
         )}
 
-        {/* 일정 삭제 모달 */}
+        {/* 일정 상세 정보 (마우스오버 툴팁과 동일한 모든 내용 표기) 및 수정/삭제 모달 */}
         {deleteConfig.isOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 transition-opacity">
             <div className="bg-white rounded-2xl sm:rounded-[2rem] shadow-2xl max-w-[90vw] sm:max-w-md w-full p-5 sm:p-8 border border-slate-100">
               <div className="flex justify-between items-start mb-4 sm:mb-6 border-b border-slate-100 pb-3 sm:pb-4">
                 <div className="flex items-center gap-2 sm:gap-3">
-                  <div className="p-2 sm:p-3 bg-red-50 text-red-600 rounded-xl sm:rounded-2xl border border-red-100">
-                    <Trash2 className="w-5 h-5 sm:w-6 sm:h-6" />
+                  <div className="p-2 sm:p-3 bg-indigo-50 text-indigo-600 rounded-xl sm:rounded-2xl border border-indigo-100">
+                    <Calendar className="w-5 h-5 sm:w-6 sm:h-6" />
                   </div>
-                  <h3 className="text-lg sm:text-2xl font-black text-slate-800">등록된 일정 삭제</h3>
+                  <h3 className="text-lg sm:text-2xl font-black text-slate-800">일정 상세 정보</h3>
                 </div>
                 <button onClick={() => setDeleteConfig({ ...deleteConfig, isOpen: false })} className="text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full p-1.5 sm:p-2">
                   <X className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -1101,64 +1151,79 @@ export default function App() {
                     <span className="text-slate-500 font-bold">작업유형</span>
                     <span className="text-slate-800 font-black">{deleteConfig.existingSchedule?.title}</span>
                 </div>
-                {(deleteConfig.existingSchedule?.region || deleteConfig.existingSchedule?.building) && (
-                    <div className="flex items-center justify-between text-xs sm:text-base">
-                        <span className="text-slate-500 font-bold">장소</span>
-                        <span className="text-slate-800 font-black text-right line-clamp-1 w-3/5">
-                            {deleteConfig.existingSchedule?.region} {deleteConfig.existingSchedule?.building}
-                        </span>
-                    </div>
-                )}
                 <div className="flex items-center justify-between text-xs sm:text-base">
                     <span className="text-slate-500 font-bold">소요시간</span>
                     <span className="text-slate-800 font-black">{deleteConfig.existingSchedule?.displayTime}</span>
                 </div>
+                <div className="flex items-center justify-between text-xs sm:text-base">
+                    <span className="text-slate-500 font-bold">지역</span>
+                    <span className="text-slate-800 font-black">{deleteConfig.existingSchedule?.region || '미입력'}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs sm:text-base">
+                    <span className="text-slate-500 font-bold">건물</span>
+                    <span className="text-slate-800 font-black">{deleteConfig.existingSchedule?.building || '미입력'}</span>
+                </div>
+                
+                {deleteConfig.existingSchedule?.memo && (
+                    <div className="flex flex-col text-xs sm:text-base border-t-2 border-slate-200 pt-2 sm:pt-3 mt-1 sm:mt-2">
+                        <span className="text-slate-500 font-bold mb-1.5">상세메모</span>
+                        <span className="text-slate-800 font-medium bg-white p-2.5 sm:p-3 rounded-lg border border-slate-200 whitespace-pre-wrap leading-relaxed break-words">
+                            {deleteConfig.existingSchedule?.memo}
+                        </span>
+                    </div>
+                )}
+                
                 <div className="flex items-center justify-between text-xs sm:text-base border-t-2 border-slate-200 pt-2 sm:pt-3 mt-1 sm:mt-2">
                     <span className="text-slate-500 font-bold">등록자</span>
                     <span className="text-indigo-600 font-black">{deleteConfig.existingSchedule?.author}</span>
                 </div>
               </div>
 
-              <div className="mb-5 sm:mb-8">
-                <label className="block text-xs sm:text-base font-bold text-slate-700 mb-2 sm:mb-3">관리자 코드 (보안 인증)</label>
+              <div className="mb-4 sm:mb-6">
+                <label className="block text-xs sm:text-sm font-bold text-slate-700 mb-1.5 sm:mb-2 text-center">관리자 코드 (보안 인증)</label>
                 <input 
                   type="password" 
                   maxLength={4}
                   value={deleteConfig.password}
                   onChange={(e) => setDeleteConfig({...deleteConfig, password: e.target.value})}
-                  placeholder="숫자 4자리 입력"
-                  className="w-full px-4 sm:px-5 py-3 sm:py-4 border-2 border-slate-300 rounded-xl sm:rounded-2xl shadow-sm focus:outline-none focus:ring-4 focus:ring-red-500/20 focus:border-red-500 text-center tracking-[0.3em] sm:tracking-[0.5em] text-lg sm:text-2xl font-black transition-all"
+                  placeholder="숫자 4자리"
+                  className="w-32 sm:w-40 mx-auto block px-3 sm:px-4 py-2 sm:py-3 border-2 border-slate-300 rounded-lg sm:rounded-xl shadow-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 text-center tracking-[0.3em] sm:tracking-widest text-base sm:text-lg font-black transition-all"
                   autoFocus
-                  onKeyDown={(e) => e.key === 'Enter' && submitDeleteSchedule()}
                 />
               </div>
               
-              <div className="flex gap-2 sm:gap-4">
+              <div className="flex gap-2 sm:gap-3">
                 <button 
                   onClick={() => setDeleteConfig({ ...deleteConfig, isOpen: false })}
-                  className="flex-1 px-3 sm:px-5 py-3 sm:py-4 bg-white border-2 border-slate-200 text-slate-700 rounded-xl sm:rounded-2xl hover:bg-slate-50 hover:border-slate-300 font-bold text-sm sm:text-lg transition-all"
+                  className="flex-1 px-2 sm:px-4 py-2.5 sm:py-3 bg-white border-2 border-slate-200 text-slate-700 rounded-lg sm:rounded-xl hover:bg-slate-50 font-bold text-xs sm:text-base transition-all"
                 >
                   취소
                 </button>
                 <button 
-                  onClick={submitDeleteSchedule}
-                  className="flex-1 px-3 sm:px-5 py-3 sm:py-4 bg-red-600 text-white rounded-xl sm:rounded-2xl hover:bg-red-700 font-bold text-sm sm:text-lg transition-all shadow-lg shadow-red-200"
+                  onClick={handleEditClick}
+                  className="flex-1 px-2 sm:px-4 py-2.5 sm:py-3 bg-indigo-600 text-white rounded-lg sm:rounded-xl hover:bg-indigo-700 font-bold text-xs sm:text-base transition-all shadow-md shadow-indigo-200"
                 >
-                  삭제 승인
+                  수정
+                </button>
+                <button 
+                  onClick={submitDeleteSchedule}
+                  className="flex-1 px-2 sm:px-4 py-2.5 sm:py-3 bg-red-600 text-white rounded-lg sm:rounded-xl hover:bg-red-700 font-bold text-xs sm:text-base transition-all shadow-md shadow-red-200"
+                >
+                  삭제
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* 새 일정 등록 모달 */}
+        {/* 새 일정 등록/수정 폼 모달 */}
         {addModalConfig.isOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl sm:rounded-[2rem] shadow-2xl max-w-[90vw] sm:max-w-lg w-full p-5 sm:p-8 my-4 sm:my-8 border border-slate-100">
               <div className="flex justify-between items-center mb-4 sm:mb-6 border-b border-slate-100 pb-3 sm:pb-4">
                 <h3 className="text-base sm:text-2xl font-black text-slate-800 flex items-center gap-2 sm:gap-3">
                   <Calendar className="text-indigo-600 w-5 h-5 sm:w-7 sm:h-7" />
-                  새 일정 등록
+                  {addModalConfig.editTaskId ? '일정 수정' : '새 일정 등록'}
                   <span className="bg-indigo-100 text-indigo-700 text-[10px] sm:text-sm px-2 sm:px-3 py-0.5 sm:py-1 rounded-full font-bold">
                       {addModalConfig.slotKey} 시작
                   </span>
@@ -1171,20 +1236,23 @@ export default function App() {
               <div className="mb-4 sm:mb-8">
                 <label className="block text-xs sm:text-base font-bold text-slate-700 mb-2 sm:mb-4 flex items-center gap-2">
                     <span className="bg-indigo-100 text-indigo-700 w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-[10px] sm:text-sm">1</span>
-                    작업 유형 선택
+                    작업 유형 선택 (유형별 디폴트 시간 적용)
                 </label>
-                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
                   {workTypes.map(wt => (
                     <button
                       key={wt.id}
-                      onClick={() => setAddFormWorkType(wt.id)}
-                      className={`px-2 sm:px-4 py-2.5 sm:py-4 rounded-xl sm:rounded-2xl border-2 text-xs sm:text-base font-bold transition-all text-center flex flex-col items-center justify-center gap-1 ${
+                      onClick={() => handleWorkTypeChange(wt.id)}
+                      className={`px-2 sm:px-4 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl border-2 text-xs sm:text-sm font-bold transition-all text-center flex flex-col items-center justify-center gap-1 ${
                         addFormWorkType === wt.id 
                           ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-md' 
                           : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:bg-slate-50'
                       }`}
                     >
                       {wt.name}
+                      <span className="text-[10px] opacity-70 font-normal">
+                        ({wt.defaultHours}시간)
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -1202,7 +1270,7 @@ export default function App() {
                             onChange={(e) => setAddFormHours(Number(e.target.value))}
                             className="w-full px-3 sm:px-5 py-2.5 sm:py-4 border-2 border-slate-300 rounded-xl sm:rounded-2xl shadow-sm appearance-none focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 font-bold text-slate-700 bg-white text-center text-sm sm:text-lg"
                         >
-                            {[...Array(9)].map((_, i) => (
+                            {[...Array(13)].map((_, i) => (
                                 <option key={i} value={i}>{i}시간</option>
                             ))}
                         </select>
@@ -1291,7 +1359,7 @@ export default function App() {
                   className="flex-1 px-3 sm:px-5 py-3 sm:py-4 bg-indigo-600 text-white rounded-xl sm:rounded-2xl hover:bg-indigo-700 font-bold text-sm sm:text-lg shadow-xl shadow-indigo-200 transition-all flex justify-center items-center gap-1.5 sm:gap-2"
                 >
                   <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
-                  등록 완료
+                  {addModalConfig.editTaskId ? '수정 완료' : '등록 완료'}
                 </button>
               </div>
             </div>
