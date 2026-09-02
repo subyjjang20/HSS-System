@@ -21,7 +21,7 @@ const firebaseConfig = {
   appId: "1:689641624104:web:041738c4f8b11532255b1d"
 };
 
-// 기본 기술자 명단 (초기값)
+// 기본 매니저 명단 (초기값)
 const defaultTechnicians = [
   { id: 1, team: '수도권', center: '계양센터', name: '구세림' },
   { id: 2, team: '수도권', center: '계양센터', name: '이기훈' },
@@ -94,7 +94,7 @@ export default function App() {
   const [overtimeConfig, setOvertimeConfig] = useState<{isOpen: boolean, updates: any, dateKey: string|null}>({ isOpen: false, updates: null, dateKey: null });
   const [techModalOpen, setTechModalOpen] = useState(false);
   
-  // 기술자 관리 폼 상태
+  // 매니저 관리 폼 상태
   const [techFormMode, setTechFormMode] = useState<'add' | 'edit'>('add');
   const [editingTechId, setEditingTechId] = useState<number | null>(null);
   const [inputTeam, setInputTeam] = useState('수도권');
@@ -177,7 +177,7 @@ export default function App() {
                     setCloudErrorDetail(`DB 접근 차단: ${error.code}`);
                 });
 
-                // 2. 기술자 명단 실시간 구독
+                // 2. 매니저 명단 실시간 구독
                 const techDocRef = doc(db, 'artifacts', 'hss-system', 'public', 'data', 'settings', 'technicians');
                 unsubSnapshotTechs = onSnapshot(techDocRef, (docSnap) => {
                     if (docSnap.exists() && docSnap.data().list) {
@@ -441,7 +441,7 @@ export default function App() {
 
   const handleDeleteTechnician = async (techId: number) => {
     if (techAdminPw !== '1470') {
-      showAlert("기술자를 삭제하려면 하단에 관리자 코드를 입력해야 합니다.");
+      showAlert("매니저를 삭제하려면 하단에 관리자 코드를 입력해야 합니다.");
       return;
     }
     if (!dbInstance) return;
@@ -450,7 +450,7 @@ export default function App() {
     try {
       const techDocRef = doc(dbInstance, 'artifacts', 'hss-system', 'public', 'data', 'settings', 'technicians');
       await setDoc(techDocRef, { list: updatedList }, { merge: true });
-      showAlert("기술자가 명단에서 삭제되었습니다.");
+      showAlert("매니저가 명단에서 삭제되었습니다.");
     } catch (e) {
       showAlert("삭제 중 오류가 발생했습니다.");
     }
@@ -881,7 +881,7 @@ export default function App() {
                 className="hidden sm:flex items-center justify-center gap-1.5 px-4 py-3 bg-slate-700 text-slate-200 rounded-2xl text-sm font-bold hover:bg-slate-600 transition-all border border-slate-600"
              >
                 <Users className="w-4 h-4" />
-                기술자 명단
+                매니저 명단
              </button>
             </div>
           </div>
@@ -921,25 +921,25 @@ export default function App() {
         {/* Views */}
         {viewMode === 'daily' ? renderDailyView() : renderMonthlyView()}
 
-        {/* 기술자 관리 모달 */}
+        {/* 매니저 관리 모달 */}
         {techModalOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[140] p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl sm:rounded-[2rem] shadow-2xl max-w-[95vw] sm:max-w-2xl w-full p-5 sm:p-8 border border-slate-100 max-h-[90vh] flex flex-col">
               <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
                 <h3 className="text-lg sm:text-2xl font-black text-slate-800 flex items-center gap-2">
                   <Users className="text-indigo-600 w-5 h-5 sm:w-6 sm:h-6" />
-                  기술자(담당자) 명단 관리
+                  매니저(담당자) 명단 관리
                 </h3>
                 <button onClick={() => setTechModalOpen(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full p-1.5 sm:p-2">
                   <X className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
               </div>
 
-              {/* 기술자 추가/수정 폼 */}
+              {/* 매니저 추가/수정 폼 */}
               <div className="bg-slate-50 p-3 sm:p-5 rounded-xl sm:rounded-2xl border border-slate-200 mb-4">
                 <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-3 flex items-center gap-1.5">
                   <PlusCircle className="w-4 h-4 text-indigo-600" />
-                  {techFormMode === 'add' ? '새 기술자 추가' : '기술자 정보 수정'}
+                  {techFormMode === 'add' ? '새 매니저 추가' : '매니저 정보 수정'}
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-3">
                   <div>
@@ -1006,13 +1006,13 @@ export default function App() {
                       onClick={handleSaveTechnician}
                       className="flex-1 sm:flex-none px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-md shadow-indigo-200"
                     >
-                      {techFormMode === 'add' ? '기술자 등록' : '수정 완료'}
+                      {techFormMode === 'add' ? '매니저 등록' : '수정 완료'}
                     </button>
                   </div>
                 </div>
               </div>
 
-              {/* 현재 기술자 목록 테이블 */}
+              {/* 현재 매니저 목록 테이블 */}
               <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl">
                 <table className="w-full text-left text-xs sm:text-sm">
                   <thead className="bg-slate-100 text-slate-600 sticky top-0 font-bold border-b border-slate-200">
