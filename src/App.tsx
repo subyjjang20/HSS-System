@@ -635,7 +635,7 @@ export default function App() {
                 <table className="w-max min-w-full border-separate border-spacing-0 table-fixed select-none">
                     <thead className="sticky top-0 z-30 shadow-sm bg-white">
                         <tr>
-                            <th rowSpan={3} className="sticky left-0 z-40 bg-slate-200 p-1 sm:p-2 min-w-[40px] sm:min-w-[60px] w-[40px] sm:w-[60px] text-center text-slate-700 font-extrabold text-[10px] sm:text-sm shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
+                            <th rowSpan={3} className="sticky left-0 z-40 bg-slate-200 p-1 sm:p-2 w-[40px] sm:w-[50px] text-center text-slate-700 font-extrabold text-[10px] sm:text-sm shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
                                 style={{ borderRight: '2px solid #64748b', borderBottom: '2px solid #64748b' }}>
                                 시간
                             </th>
@@ -660,7 +660,7 @@ export default function App() {
                         </tr>
                         <tr>
                             {techniciansList.map((tech, index) => (
-                                <th key={tech.id} className="p-1 sm:p-1.5 min-w-[60px] sm:min-w-[120px] w-[60px] sm:w-[120px] text-center bg-white"
+                                <th key={tech.id} className="p-1 sm:p-1.5 w-[60px] sm:w-auto text-center bg-white"
                                     style={{ borderRight: getRightBorderStyle(index), borderBottom: '2px solid #64748b' }}>
                                     <div className="font-extrabold text-slate-900 text-[10px] sm:text-sm truncate px-0.5">{tech.name}</div>
                                 </th>
