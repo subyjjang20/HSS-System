@@ -568,7 +568,7 @@ export default function App() {
             <div className="bg-indigo-50/50 border-b-2 border-slate-200 p-2 sm:p-3 flex justify-between items-center shrink-0">
                 <span className="font-bold text-slate-600 flex items-start sm:items-center gap-1.5 sm:gap-2 text-[10px] sm:text-sm">
                     <Info className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5 sm:mt-0" />
-                    <span className="leading-tight">시간 칸을 클릭하여 일정을 등록하세요. (가로 실선은 1시간, 얇은 점선은 10분 단위)</span>
+                    <span className="leading-tight">시간 칸을 클릭하여 일정을 등록하세요.</span>
                 </span>
                 <button
                     onClick={() => setTechModalOpen(true)}
